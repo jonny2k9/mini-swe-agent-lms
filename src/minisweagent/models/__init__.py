@@ -76,6 +76,7 @@ def get_model_name(input_model_name: str | None = None, config: dict | None = No
 
 
 _MODEL_CLASS_MAPPING = {
+    "lmstudio": "minisweagent.models.lmstudio_model.LMStudioModel",
     "litellm": "minisweagent.models.litellm_model.LitellmModel",
     "litellm_textbased": "minisweagent.models.litellm_textbased_model.LitellmTextbasedModel",
     "litellm_response": "minisweagent.models.litellm_response_model.LitellmResponseModel",

@@ -14,6 +14,15 @@ def no_reload(monkeypatch):
 class TestConfigSetup:
     """Test the setup function with various inputs."""
 
+    def _patch_list_models(self, models=None):
+        """Helper to patch LM Studio model listing."""
+        from unittest.mock import patch
+
+        return patch(
+            "minisweagent.models.lmstudio_model.LMStudioModel.list_models",
+            return_value=models or [],
+        )
+
     def test_setup_with_all_inputs(self, tmp_path):
         """Test setup function when user provides all inputs."""
         config_file = tmp_path / ".env"
@@ -22,16 +31,18 @@ class TestConfigSetup:
             patch("minisweagent.run.utilities.config.global_config_file", config_file),
             patch("minisweagent.run.utilities.config.prompt") as mock_prompt,
             patch("minisweagent.run.utilities.config.console.print"),
+            self._patch_list_models(["model-a", "model-b"]),
         ):
-            mock_prompt.side_effect = ["anthropic/claude-sonnet-4-5-20250929", "ANTHROPIC_API_KEY", "sk-test123"]
+            mock_prompt.side_effect = ["http://localhost:1234", "my-key", "model-a"]
 
             setup()
 
-            # Verify the file was created and contains the expected content
             assert config_file.exists()
             content = config_file.read_text()
-            assert "MSWEA_MODEL_NAME='anthropic/claude-sonnet-4-5-20250929'" in content
-            assert "ANTHROPIC_API_KEY='sk-test123'" in content
+            assert "LMSTUDIO_ENDPOINT='http://localhost:1234'" in content
+            assert "LMSTUDIO_API_KEY='my-key'" in content
+            assert "LMSTUDIO_MODEL='model-a'" in content
+            assert "MSWEA_MODEL_NAME='model-a'" in content
             assert "MSWEA_CONFIGURED='true'" in content
 
     def test_setup_with_model_only(self, tmp_path):
@@ -42,17 +53,19 @@ class TestConfigSetup:
             patch("minisweagent.run.utilities.config.global_config_file", config_file),
             patch("minisweagent.run.utilities.config.prompt") as mock_prompt,
             patch("minisweagent.run.utilities.config.console.print"),
+            self._patch_list_models(),
         ):
-            mock_prompt.side_effect = ["gpt-4", "", ""]
+            mock_prompt.side_effect = ["", "", "my-local-model"]
 
             setup()
 
             content = config_file.read_text()
-            assert "MSWEA_MODEL_NAME='gpt-4'" in content
+            assert "LMSTUDIO_MODEL='my-local-model'" in content
+            assert "MSWEA_MODEL_NAME='my-local-model'" in content
             assert "MSWEA_CONFIGURED='true'" in content
-            # Should not contain any API key
-            assert "ANTHROPIC_API_KEY" not in content
-            assert "OPENAI_API_KEY" not in content
+            # No endpoint/api_key since they were left blank
+            assert "LMSTUDIO_ENDPOINT" not in content
+            assert "LMSTUDIO_API_KEY" not in content
 
     def test_setup_with_empty_inputs(self, tmp_path):
         """Test setup when user provides empty inputs."""
@@ -62,14 +75,15 @@ class TestConfigSetup:
             patch("minisweagent.run.utilities.config.global_config_file", config_file),
             patch("minisweagent.run.utilities.config.prompt") as mock_prompt,
             patch("minisweagent.run.utilities.config.console.print"),
+            self._patch_list_models(),
         ):
             mock_prompt.side_effect = ["", "", ""]
 
             setup()
 
             content = config_file.read_text()
-            # Should only have configured flag
             assert "MSWEA_CONFIGURED='true'" in content
+            assert "LMSTUDIO_MODEL" not in content
             assert "MSWEA_MODEL_NAME" not in content
 
     def test_setup_with_existing_env_vars(self, tmp_path):
@@ -80,38 +94,37 @@ class TestConfigSetup:
             patch("minisweagent.run.utilities.config.global_config_file", config_file),
             patch("minisweagent.run.utilities.config.prompt") as mock_prompt,
             patch("minisweagent.run.utilities.config.console.print"),
-            patch.dict(os.environ, {"MSWEA_MODEL_NAME": "existing-model", "ANTHROPIC_API_KEY": "existing-key"}),
+            patch.dict(os.environ, {"LMSTUDIO_ENDPOINT": "http://myhost:1234", "LMSTUDIO_MODEL": "existing-model"}),
+            self._patch_list_models(["existing-model"]),
         ):
-            # When prompted, user accepts defaults (existing values)
-            mock_prompt.side_effect = ["existing-model", "ANTHROPIC_API_KEY", "existing-key"]
+            mock_prompt.side_effect = ["http://myhost:1234", "", "existing-model"]
 
             setup()
 
             content = config_file.read_text()
+            assert "LMSTUDIO_ENDPOINT='http://myhost:1234'" in content
+            assert "LMSTUDIO_MODEL='existing-model'" in content
             assert "MSWEA_MODEL_NAME='existing-model'" in content
-            assert "ANTHROPIC_API_KEY='existing-key'" in content
 
-    def test_setup_key_name_but_no_value(self, tmp_path):
-        """Test setup when user provides key name but no value."""
+    def test_setup_lmstudio_not_running(self, tmp_path):
+        """Test setup when LM Studio is not running (list_models raises)."""
         config_file = tmp_path / ".env"
 
         with (
             patch("minisweagent.run.utilities.config.global_config_file", config_file),
             patch("minisweagent.run.utilities.config.prompt") as mock_prompt,
-            patch("minisweagent.run.utilities.config.console.print") as mock_print,
+            patch("minisweagent.run.utilities.config.console.print"),
+            patch(
+                "minisweagent.models.lmstudio_model.LMStudioModel.list_models",
+                side_effect=ConnectionError("LM Studio not running"),
+            ),
         ):
-            mock_prompt.side_effect = ["gpt-4", "OPENAI_API_KEY", ""]
+            mock_prompt.side_effect = ["http://localhost:1234", "", "my-model"]
 
-            setup()
+            setup()  # should not raise
 
             content = config_file.read_text()
-            assert "MSWEA_MODEL_NAME='gpt-4'" in content
             assert "MSWEA_CONFIGURED='true'" in content
-            # Should not contain the API key since no value was provided
-            assert "OPENAI_API_KEY" not in content
-            mock_print.assert_any_call(
-                "[bold red]API key setup not completed.[/bold red] Totally fine if you have your keys as environment variables."
-            )
 
 
 class TestConfigSet:
