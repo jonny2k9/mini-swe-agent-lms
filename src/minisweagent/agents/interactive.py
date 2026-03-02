@@ -155,6 +155,31 @@ class InteractiveAgent(DefaultAgent):
                     itype="UserRejection",
                 )
 
+    def _switch_lmstudio_model(self, prompt: str) -> str:
+        """List LM Studio models and let the user pick one to switch to."""
+        try:
+            from minisweagent.models.lmstudio_model import LMStudioModel
+
+            models = LMStudioModel.list_models()
+        except Exception as e:
+            console.print(f"[bold red]Could not list LM Studio models: {e}[/bold red]")
+            return self._prompt_and_handle_slash_commands(prompt)
+        if not models:
+            console.print("[bold yellow]No models found in LM Studio.[/bold yellow]")
+            return self._prompt_and_handle_slash_commands(prompt)
+        console.print("[bold green]Available LM Studio models:[/bold green]")
+        for i, m in enumerate(models, 1):
+            console.print(f"  {i}. {m}")
+        choice = prompt_session.prompt("Pick a model number (or leave blank to cancel): ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(models):
+            selected = models[int(choice) - 1]
+            self.model.config.model_name = f"openai/{selected}" if not selected.startswith("openai/") else selected
+            self.model.config.model_kwargs["api_base"] = self.model.config.model_kwargs.get(
+                "api_base", self.model.config.lmstudio_endpoint.rstrip("/") + "/v1"
+            )
+            console.print(f"Switched to model [bold green]{selected}[/bold green].")
+        return self._prompt_and_handle_slash_commands(prompt)
+
     def _prompt_and_handle_slash_commands(self, prompt: str, *, _multiline: bool = False) -> str:
         """Prompts the user, takes care of /h (followed by requery) and sets the mode. Returns the user input."""
         console.print(prompt, end="")
@@ -163,13 +188,16 @@ class InteractiveAgent(DefaultAgent):
         user_input = prompt_session.prompt("")
         if user_input == "/m":
             return self._prompt_and_handle_slash_commands(prompt, _multiline=True)
+        if user_input == "/lms":
+            return self._switch_lmstudio_model(prompt)
         if user_input == "/h":
             console.print(
                 f"Current mode: [bold green]{self.config.mode}[/bold green]\n"
                 f"[bold green]/y[/bold green] to switch to [bold yellow]yolo[/bold yellow] mode (execute LM commands without confirmation)\n"
                 f"[bold green]/c[/bold green] to switch to [bold yellow]confirmation[/bold yellow] mode (ask for confirmation before executing LM commands)\n"
                 f"[bold green]/u[/bold green] to switch to [bold yellow]human[/bold yellow] mode (execute commands issued by the user)\n"
-                f"[bold green]/m[/bold green] to enter multiline comment",
+                f"[bold green]/m[/bold green] to enter multiline comment\n"
+                f"[bold green]/lms[/bold green] to pick/switch LM Studio model",
             )
             return self._prompt_and_handle_slash_commands(prompt)
         if user_input in self._MODE_COMMANDS_MAPPING:

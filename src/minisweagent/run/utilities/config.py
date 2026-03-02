@@ -31,24 +31,19 @@ app = Typer(
 console = Console(highlight=False)
 
 
-_SETUP_HELP = """To get started, we need to set up your global config file.
+_SETUP_HELP = """To get started, we need to set up your [bold green]LM Studio[/bold green] connection.
 
-You can edit it manually or use the [bold green]mini-extra config set[/bold green] or [bold green]mini-extra config edit[/bold green] commands.
+You can edit settings manually or use the [bold green]mini-extra config set[/bold green] or [bold green]mini-extra config edit[/bold green] commands.
 
-This setup will ask you for your model and an API key.
+This setup will ask for your LM Studio API endpoint, an optional API key, and the default model.
 
-Here's a few popular models and the required API keys:
+[bold]LM Studio default endpoint:[/bold] [bold green]http://localhost:1234[/bold green]
+[bold]API key:[/bold] LM Studio accepts any non-empty string (leave blank to use the default).
+[bold]Model:[/bold] Enter the model name as shown in LM Studio (e.g., [bold green]lmstudio-community/qwen2.5-7b-instruct[/bold green]).
 
-[bold green]anthropic/claude-sonnet-4-5-20250929[/bold green] ([bold green]ANTHROPIC_API_KEY[/bold green])
-[bold green]openai/gpt-5[/bold green] or [bold green]openai/gpt-5-mini[/bold green] ([bold green]OPENAI_API_KEY[/bold green])
-[bold green]gemini/gemini-3-pro-preview[/bold green] ([bold green]GEMINI_API_KEY[/bold green])
-
-[bold]Note: Please always include the provider (e.g., "openai/") in the model name.[/bold]
-
-[bold yellow]You can leave any setting blank to skip it.[/bold yellow]
+[bold yellow]You can leave any setting blank to keep the current/default value.[/bold yellow]
 
 More information at https://mini-swe-agent.com/latest/quickstart/
-To find the best model, check the leaderboard at https://swebench.com/
 """
 
 
@@ -68,27 +63,42 @@ def configure_if_first_time():
 
 @app.command()
 def setup():
-    """Setup the global config file."""
+    """Setup the global config file for LM Studio."""
     console.print(_SETUP_HELP.format(global_config_file=global_config_file))
+    endpoint = prompt(
+        "Enter your LM Studio API endpoint: ",
+        default=os.getenv("LMSTUDIO_ENDPOINT", "http://localhost:1234"),
+    ).strip()
+    if endpoint:
+        set_key(global_config_file, "LMSTUDIO_ENDPOINT", endpoint)
+    api_key = prompt(
+        "Enter your LM Studio API key (leave blank for default 'lm-studio'): ",
+        default=os.getenv("LMSTUDIO_API_KEY", ""),
+    ).strip()
+    if api_key:
+        set_key(global_config_file, "LMSTUDIO_API_KEY", api_key)
+
+    # Try to list models from LM Studio to help the user pick one
+    try:
+        from minisweagent.models.lmstudio_model import LMStudioModel
+
+        models = LMStudioModel.list_models(endpoint or os.getenv("LMSTUDIO_ENDPOINT", "http://localhost:1234"))
+        if models:
+            console.print("\n[bold green]Available models in LM Studio:[/bold green]")
+            for i, m in enumerate(models, 1):
+                console.print(f"  {i}. {m}")
+            console.print()
+    except Exception:
+        console.print("[bold yellow]Could not connect to LM Studio to list models. Is it running?[/bold yellow]")
+
     default_model = prompt(
-        "Enter your default model (e.g., anthropic/claude-sonnet-4-5-20250929): ",
-        default=os.getenv("MSWEA_MODEL_NAME", ""),
+        "Enter your default model name: ",
+        default=os.getenv("LMSTUDIO_MODEL", os.getenv("MSWEA_MODEL_NAME", "")),
     ).strip()
     if default_model:
+        set_key(global_config_file, "LMSTUDIO_MODEL", default_model)
         set_key(global_config_file, "MSWEA_MODEL_NAME", default_model)
-    console.print(
-        "[bold yellow]If you already have your API keys set as environment variables, you can ignore the next question.[/bold yellow]"
-    )
-    key_name = prompt("Enter your API key name (e.g., ANTHROPIC_API_KEY): ").strip()
-    key_value = None
-    if key_name:
-        key_value = prompt("Enter your API key value (e.g., sk-1234567890): ", default=os.getenv(key_name, "")).strip()
-        if key_value:
-            set_key(global_config_file, key_name, key_value)
-    if not key_value:
-        console.print(
-            "[bold red]API key setup not completed.[/bold red] Totally fine if you have your keys as environment variables."
-        )
+
     set_key(global_config_file, "MSWEA_CONFIGURED", "true")
     _reload_config()
     console.print(
